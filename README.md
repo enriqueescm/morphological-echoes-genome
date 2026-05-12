@@ -1,5 +1,5 @@
 # morphological-echoes-genome
-Genomic analysis of human craniofacial variation across populations — integrating population genetics with biological anthropology
+From Typology to Genomics: Revisiting Human Morphological Diversity Through Population Genetics
 ## Overview
 
 Most bioinformatics projects treat human populations as statistical clusters.
