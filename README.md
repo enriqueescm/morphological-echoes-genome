@@ -8,7 +8,7 @@ that physical anthropologists have documented for over a century.
 
 This project integrates **population genomics** with **biological anthropology**
 to investigate whether craniofacial variation across human populations
-leaves detectable signatures in the genome — through population structure,
+leaves detectable signatures in the genome, through population structure,
 natural selection, and candidate gene analysis.
 
 ## Biological Question
