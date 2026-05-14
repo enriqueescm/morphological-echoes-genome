@@ -161,3 +161,51 @@ p4 <- ggplot(fst_long, aes(x = Pop1, y = Pop2, fill = FST)) +
 
 p4
 ggsave("figures/04_FST_heatmap.png", p4, width = 8, height = 7, dpi = 300)
+
+# Análisis de genes candidatos craneofaciales en Chr1
+# RUNX2: chr1:45,392,147-45,746,609
+# COL1A1: chr1:101,941,859-101,974,317
+
+# Cargar FST por SNP AFR-EAS (par más diferenciado)
+fst_snp <- read_table("data/processed/chr1_fst_snp.AFR.EAS.fst.var")
+
+# Definir regiones de genes candidatos
+genes_candidatos <- data.frame(
+  gene = c("RUNX2", "COL1A1"),
+  start = c(45392147, 101941859),
+  end = c(45746609, 101974317)
+)
+
+# Etiquetar SNPs en genes candidatos
+fst_snp <- fst_snp %>%
+  mutate(gene = case_when(
+    POS >= 45392147 & POS <= 45746609 ~ "RUNX2",
+    POS >= 101941859 & POS <= 101974317 ~ "COL1A1",
+    TRUE ~ NA_character_
+  ))
+
+# Manhattan-style plot
+p5 <- ggplot(fst_snp, aes(x = POS/1e6, y = HUDSON_FST)) +
+  geom_point(alpha = 0.3, size = 0.8, color = "grey60") +
+  geom_point(data = filter(fst_snp, !is.na(gene)),
+             aes(color = gene), size = 2.5, alpha = 0.9) +
+  geom_hline(yintercept = quantile(fst_snp$HUDSON_FST, 0.99, na.rm = TRUE),
+             linetype = "dashed", color = "red", linewidth = 0.5) +
+  scale_color_manual(values = c("RUNX2" = "#E41A1C", "COL1A1" = "#377EB8"),
+                     name = "Candidate Gene") +
+  labs(
+    title = "FST Along Chromosome 1 — AFR vs EAS",
+    subtitle = "Craniofacial candidate genes highlighted | 1000 Genomes Project Phase 3",
+    x = "Position (Mb)",
+    y = "Hudson FST",
+    caption = "Dashed line = 99th percentile FST threshold"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+
+p5
+ggsave("figures/05_FST_candidates_chr1.png", p5, width = 12, height = 6, dpi = 300)
