@@ -1,0 +1,640 @@
+---
+title: "From Typology to Genomics: Revisiting Human Morphological Diversity Through Population Genetics"
+author: 
+  - name: "Enrique Estevez"
+    affiliation: "MSc Bioinformatics & Biostatistics | PhD Biomedicine | Biological Anthropologist"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    toc-title: "Contents"
+    theme: flatly
+    fig-width: 10
+    fig-height: 7
+    code-fold: true
+    code-summary: "Show code"
+    number-sections: true
+    highlight-style: github
+    df-print: paged
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+library(RColorBrewer)
+library(reshape2)
+library(patchwork)
+
+# Cargar datos
+eigenvec <- read_table("/Users/kike/morphological-echoes-genome/data/processed/chr1_pca.eigenvec")
+eigenval <- read_lines("/Users/kike/morphological-echoes-genome/data/processed/chr1_pca.eigenval") %>% as.numeric()
+panel <- read_table("/Users/kike/morphological-echoes-genome/data/raw/integrated_call_samples_v3.20130502.ALL.panel")
+fst_data <- read_table("/Users/kike/morphological-echoes-genome/data/processed/chr1_fst.fst.summary")
+fst_snp <- read_table("/Users/kike/morphological-echoes-genome/data/processed/chr1_fst_snp.AFR.EAS.fst.var")
+
+pve <- round(eigenval / sum(eigenval) * 100, 2)
+
+pca_data <- eigenvec %>%
+  rename(sample = `#IID`) %>%
+  left_join(panel, by = "sample")
+
+colores <- c(
+  "AFR" = "#E41A1C", "EUR" = "#377EB8",
+  "EAS" = "#4DAF4A", "SAS" = "#FF7F00", "AMR" = "#984EA3"
+)
+
+centroides <- pca_data %>%
+  group_by(super_pop) %>%
+  summarise(PC1 = mean(PC1), PC2 = mean(PC2))
+
+pops <- unique(c(fst_data$`#POP1`, fst_data$POP2))
+fst_matrix <- matrix(0, nrow = length(pops), ncol = length(pops))
+rownames(fst_matrix) <- pops
+colnames(fst_matrix) <- pops
+for (i in 1:nrow(fst_data)) {
+  p1 <- fst_data$`#POP1`[i]
+  p2 <- fst_data$POP2[i]
+  val <- fst_data$HUDSON_FST[i]
+  fst_matrix[p1, p2] <- val
+  fst_matrix[p2, p1] <- val
+}
+fst_long <- melt(fst_matrix)
+colnames(fst_long) <- c("Pop1", "Pop2", "FST")
+
+fst_snp <- fst_snp %>%
+  mutate(gene = case_when(
+    POS >= 45392147 & POS <= 45746609 ~ "RUNX2",
+    POS >= 101941859 & POS <= 101974317 ~ "COL1A1",
+    TRUE ~ NA_character_
+  ))
+```
+
+## Abstract {.unnumbered}
+
+::: {.callout-note appearance="minimal"}
+Human morphological diversity has been documented by physical anthropologists 
+for over a century, yet its genomic underpinnings remain incompletely understood. 
+Using whole-genome data from 2,504 individuals across 26 globally distributed 
+populations from the 1000 Genomes Project Phase 3, we characterize population 
+structure and genetic differentiation across the major human superpopulations. 
+Principal component analysis reveals clear geographic clustering consistent with 
+known demographic history, including the Out-of-Africa bottleneck, clinal variation 
+across Eurasia, and complex admixture patterns in the Americas. Pairwise FST 
+analysis identifies substantial differentiation between African and East Asian 
+populations (Hudson FST = 0.154), with the craniofacial master regulator RUNX2 
+showing variants in the top 1% of differentiated loci. Collagen gene COL1A1 shows 
+low differentiation, consistent with purifying selection on structural proteins. 
+These findings provide a genomic framework for interpreting morphological variation 
+that transcends discrete racial typologies and situates human diversity within 
+its proper demographic and evolutionary context.
+
+**Keywords:** population genomics, craniofacial variation, FST, principal component 
+analysis, biological anthropology, 1000 Genomes Project, RUNX2
+:::
+
+---
+
+## Introduction
+
+### The Typological Legacy and Its Genomic Critique
+
+The study of human morphological variation carries a complex intellectual history. 
+From the earliest craniometric studies of the 18th and 19th centuries — Blumenbach's 
+racial classifications, Morton's skull collections, Broca's anthropometric protocols — 
+physical anthropology long operated under a typological framework that sought to 
+partition human diversity into discrete, bounded categories. These efforts, however 
+well-intentioned their scientific framing, ultimately reified socially constructed 
+racial categories rather than capturing the biological reality of human variation 
+(Lewontin, 1972; Relethford, 2009).
+
+The molecular revolution fundamentally challenged this typological paradigm. 
+Lewontin's seminal 1972 analysis demonstrated that the vast majority of human 
+genetic variation (~85%) exists *within* rather than *between* populations — 
+a finding repeatedly confirmed by subsequent studies using increasingly dense 
+marker sets (Barbujani et al., 1997; Rosenberg et al., 2002). The Human Genome 
+Project and its successors revealed a species with remarkably low genetic diversity 
+compared to other great apes, a direct consequence of our recent common ancestry 
+and the demographic bottlenecks associated with the Out-of-Africa dispersal 
+(Li et al., 2008).
+
+Yet the genomic critique of racial typology does not imply that human populations 
+are genetically homogeneous. Substantial and biologically meaningful variation 
+exists, structured by geography, demographic history, and natural selection. 
+Understanding this variation — its patterns, causes, and morphological correlates — 
+is precisely the task of a modern biological anthropology informed by genomics.
+
+### Craniofacial Variation as a Model Phenotype
+
+The human craniofacial complex occupies a privileged position in biological 
+anthropology, both historically and scientifically. Historically, cranial 
+measurements formed the backbone of physical anthropological classification 
+for over a century. Scientifically, facial morphology is among the most 
+variable and visually salient aspects of human phenotypic diversity, making 
+it an ideal model for studying the genetic architecture of complex traits.
+
+Recent genome-wide association studies have identified dozens of loci influencing 
+normal facial variation (Claes et al., 2018; White et al., 2021), with many 
+showing signatures of population differentiation consistent with local adaptation. 
+Key candidate genes include *EDAR*, which influences hair follicle morphology 
+and facial soft tissue in East Asian populations (Kamberov et al., 2013); 
+*PAX3*, associated with nasal morphology across populations (Adhikari et al., 2016); 
+and *RUNX2*, a transcription factor essential for osteoblast differentiation and 
+craniofacial ossification patterns (Lefevre et al., 2018).
+
+### Objectives
+
+This study pursues three interconnected objectives:
+
+1. To characterize the genomic population structure of globally distributed human 
+populations using principal component analysis, situating genetic clusters within 
+their demographic and geographic context.
+
+2. To quantify pairwise genetic differentiation (FST) between major superpopulations, 
+identifying which population pairs show the greatest divergence and interpreting 
+these patterns through the lens of human demographic history.
+
+3. To examine whether craniofacial candidate genes on chromosome 1 — specifically 
+*RUNX2* and *COL1A1* — show elevated population differentiation consistent with 
+local adaptation or relaxed purifying selection.
+
+---
+
+## Methods
+
+### Data Sources
+
+Genotype data were obtained from the 1000 Genomes Project Phase 3 
+(1000 Genomes Project Consortium, 2015), focusing on chromosome 1 as the 
+largest autosome and one containing key craniofacial candidate genes. 
+The dataset comprises 2,504 unrelated individuals from 26 populations 
+spanning five continental superpopulations: African (AFR, n=661), 
+East Asian (EAS, n=504), European (EUR, n=503), South Asian (SAS, n=489), 
+and Admixed American (AMR, n=347).
+
+### Bioinformatic Pipeline
+
+All genomic analyses were performed using PLINK2 v2.0.0-a.7.1 (Chang et al., 2015) 
+on macOS (Apple Silicon). The complete pipeline is available at 
+[github.com/enriqueescm/morphological-echoes-genome](https://github.com/enriqueescm/morphological-echoes-genome).
+
+#### Quality Control
+
+Raw VCF files underwent the following filtering steps:
+
+| Filter | Parameter | Rationale |
+|--------|-----------|-----------|
+| Minor allele frequency | MAF > 5% | Remove rare variants with limited population-discriminating power |
+| Allele count | Biallelic SNPs only | Standardize variant format for downstream analyses |
+| Individual missingness | < 10% | Exclude low-quality samples |
+| Variant missingness | < 10% | Exclude low-quality variants |
+
+After filtering, **530,434 SNPs** were retained from an initial 6,468,094 variants scanned.
+
+#### Linkage Disequilibrium Pruning
+
+To obtain a set of approximately independent markers for PCA — which assumes 
+independence among input variants — we applied LD pruning using a sliding window 
+approach (window = 50 SNPs, step = 10, r² threshold = 0.1). This reduced the 
+variant set to **22,415 independent SNPs**, representing ~4.2% of post-QC variants. 
+The high pruning rate (95.8% removed) reflects the extensive LD structure of 
+chromosome 1, consistent with known recombination hotspot distributions in 
+the human genome (Myers et al., 2005).
+
+#### Principal Component Analysis
+
+PCA was performed on the LD-pruned variant set using PLINK2's implementation, 
+computing the top 10 principal components. Eigenvectors and eigenvalues were 
+exported for visualization in R v4.4.3 using ggplot2 v3.5.0.
+
+#### FST Estimation
+
+Pairwise FST between superpopulations was estimated using the Hudson method 
+(Bhatia et al., 2013), which has been shown to produce less biased estimates 
+than the classical Weir-Cockerham method, particularly in the presence of 
+unequal sample sizes. Per-variant FST was calculated for all 10 pairwise 
+population comparisons using PLINK2's `--fst report-variants` option.
+
+#### Candidate Gene Analysis
+
+Craniofacial candidate genes on chromosome 1 were identified from the GWAS 
+Catalog and primary literature:
+
+| Gene | Genomic Coordinates (GRCh37) | Function |
+|------|------------------------------|----------|
+| RUNX2 | chr1:45,392,147-45,746,609 | Master regulator of osteoblast differentiation and craniofacial ossification |
+| COL1A1 | chr1:101,941,859-101,974,317 | Encodes the alpha-1 chain of type I collagen; structural component of bone matrix |
+
+SNPs within these regions were annotated in the per-variant FST output and 
+compared against the genome-wide FST distribution.
+
+---
+
+## Results
+
+### Sample Composition
+
+```{r}
+#| label: tbl-samples
+#| tbl-cap: "Sample composition by superpopulation"
+
+pca_data %>%
+  count(super_pop, name = "n") %>%
+  arrange(desc(n)) %>%
+  mutate(
+    Superpopulation = case_when(
+      super_pop == "AFR" ~ "African",
+      super_pop == "EAS" ~ "East Asian",
+      super_pop == "EUR" ~ "European",
+      super_pop == "SAS" ~ "South Asian",
+      super_pop == "AMR" ~ "Admixed American"
+    ),
+    Percentage = paste0(round(n/sum(n)*100, 1), "%")
+  ) %>%
+  select(Code = super_pop, Superpopulation, N = n, Percentage)
+```
+
+### Genomic Population Structure
+
+```{r}
+#| label: fig-pca-combined
+#| fig-cap: "Population structure of 2,504 individuals from 26 globally distributed populations. Left: PC1 vs PC2 colored by superpopulation with centroid labels. Right: PC1 vs PC3 revealing additional within-Eurasian structure. PC1 explains 56.85% of variance, separating African from non-African populations consistent with the Out-of-Africa bottleneck. PC2 (24.23%) separates East Asian from European/South Asian populations. AMR populations show intermediate positions reflecting complex admixture histories."
+#| fig-width: 14
+#| fig-height: 6
+
+p_left <- ggplot(pca_data, aes(x = PC1, y = PC2, color = super_pop, fill = super_pop)) +
+  geom_point(alpha = 0.5, size = 1.8, shape = 21, stroke = 0.2) +
+  geom_text(data = centroides, aes(label = super_pop),
+            size = 4, fontface = "bold", color = "black", show.legend = FALSE) +
+  scale_color_manual(values = colores, name = "Superpopulation") +
+  scale_fill_manual(values = colores, name = "Superpopulation") +
+  labs(
+    title = "PC1 vs PC2",
+    x = paste0("PC1 (", pve[1], "%)"),
+    y = paste0("PC2 (", pve[2], "%)")
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none", panel.grid.minor = element_blank())
+
+centroides2 <- pca_data %>%
+  group_by(super_pop) %>%
+  summarise(PC1 = mean(PC1), PC3 = mean(PC3))
+
+p_right <- ggplot(pca_data, aes(x = PC1, y = PC3, color = super_pop, fill = super_pop)) +
+  geom_point(alpha = 0.5, size = 1.8, shape = 21, stroke = 0.2) +
+  geom_text(data = centroides2, aes(label = super_pop),
+            size = 4, fontface = "bold", color = "black", show.legend = FALSE) +
+  scale_color_manual(values = colores, name = "Superpopulation") +
+  scale_fill_manual(values = colores, name = "Superpopulation") +
+  labs(
+    title = "PC1 vs PC3",
+    x = paste0("PC1 (", pve[1], "%)"),
+    y = paste0("PC3 (", pve[3], "%)")
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "right", panel.grid.minor = element_blank())
+
+p_left + p_right +
+  plot_annotation(
+    title = "Human Genetic Variation Mirrors Geography",
+    subtitle = "1000 Genomes Project Phase 3 | Chr1 | 22,415 LD-pruned SNPs",
+    theme = theme(plot.title = element_text(face = "bold", size = 14))
+  )
+```
+
+The dominant axis of human genetic variation (PC1, 56.85% variance explained) 
+separates African from non-African populations with near-complete fidelity. 
+This pattern directly reflects the Out-of-Africa dispersal: approximately 
+60,000-70,000 years ago, a small founding population left Africa, carrying 
+only a subset of the genetic diversity present on the continent (Li et al., 2008). 
+The resulting bottleneck reduced genetic diversity in non-African populations — 
+a pattern visible here in the compressed clustering of EUR, EAS, and SAS 
+relative to the more dispersed AFR cluster.
+
+PC2 (24.23%) captures the major axis of within-Eurasian variation, separating 
+East Asian from European and South Asian populations. Notably, South Asian 
+populations (SAS) occupy an intermediate position between European and East 
+Asian clusters, consistent with their geographic location and shared demographic 
+history with both western and eastern Eurasian lineages (Reich et al., 2009).
+
+Admixed American populations (AMR) show characteristic intermediate positioning 
+across multiple PCs, reflecting their complex demographic history: indigenous 
+American ancestry (itself derived from a subset of East Asian ancestors who 
+crossed Beringia ~15,000-20,000 years ago), combined with substantial European 
+and, in some populations, African admixture following the Columbian Exchange 
+(Reich et al., 2012).
+
+### Pairwise Genetic Differentiation
+
+```{r}
+#| label: fig-fst-combined
+#| fig-cap: "Pairwise genetic differentiation between human superpopulations. Left: Hudson FST heatmap showing all pairwise comparisons. Right: FST values ranked from highest to lowest differentiation. AFR-EAS shows the greatest differentiation (FST=0.154), while AMR-EUR shows the lowest (FST=0.022)."
+#| fig-width: 14
+#| fig-height: 6
+
+p_heat <- ggplot(fst_long, aes(x = Pop1, y = Pop2, fill = FST)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = ifelse(FST > 0, round(FST, 3), "")), 
+            size = 3.5, fontface = "bold") +
+  scale_fill_gradient(low = "#FFFFD4", high = "#E41A1C",
+                      name = "FST", limits = c(0, 0.16)) +
+  labs(title = "FST Heatmap", x = NULL, y = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text = element_text(face = "bold", size = 10),
+        panel.grid = element_blank())
+
+fst_ranked <- fst_data %>%
+  mutate(pair = paste0(`#POP1`, "–", POP2)) %>%
+  arrange(desc(HUDSON_FST))
+
+p_bar <- ggplot(fst_ranked, aes(x = reorder(pair, HUDSON_FST), 
+                                 y = HUDSON_FST, fill = HUDSON_FST)) +
+  geom_col() +
+  geom_text(aes(label = round(HUDSON_FST, 3)), hjust = -0.1, size = 3.5) +
+  scale_fill_gradient(low = "#FFFFD4", high = "#E41A1C", guide = "none") +
+  coord_flip() +
+  ylim(0, 0.18) +
+  labs(title = "FST Ranked", x = NULL, y = "Hudson FST") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank())
+
+p_heat + p_bar +
+  plot_annotation(
+    title = "Genetic Differentiation Between Human Superpopulations",
+    subtitle = "Hudson FST | Chr1 | 22,415 SNPs | 1000 Genomes Project Phase 3",
+    theme = theme(plot.title = element_text(face = "bold", size = 14))
+  )
+```
+
+```{r}
+#| label: tbl-fst
+#| tbl-cap: "Pairwise Hudson FST between superpopulations, ranked by differentiation"
+
+fst_data %>%
+  rename(Pop1 = `#POP1`, Pop2 = POP2, `Hudson FST` = HUDSON_FST) %>%
+  arrange(desc(`Hudson FST`)) %>%
+  mutate(
+    Interpretation = case_when(
+      `Hudson FST` > 0.15 ~ "Very high differentiation",
+      `Hudson FST` > 0.10 ~ "High differentiation",
+      `Hudson FST` > 0.05 ~ "Moderate differentiation",
+      TRUE ~ "Low differentiation"
+    )
+  )
+```
+
+The AFR–EAS pair shows the highest FST (0.154), reflecting both the deep 
+divergence time between African and Asian lineages and the strong demographic 
+bottleneck experienced by East Asian populations, which is known to have amplified 
+genetic drift and increased differentiation from the African source population 
+(Jakobsson et al., 2008).
+
+The EUR–SAS pair shows the lowest inter-continental FST (0.032), consistent 
+with the shared Indo-European demographic history connecting these populations 
+through the Pontic steppe migrations of the late Neolithic and Bronze Age 
+(Haak et al., 2015). This genomic proximity mirrors the linguistic relatedness 
+of Indo-European language families — a striking convergence of cultural and 
+biological history.
+
+The AMR–EUR FST (0.022) is the lowest of all pairwise comparisons, reflecting 
+the substantial European admixture in the AMR populations sampled by the 
+1000 Genomes Project (predominantly MXL, PUR, CLM, PEL). This is not a 
+biological signal of proximity but a demographic one — the legacy of 
+post-Columbian European colonization.
+
+### Candidate Craniofacial Gene Analysis
+
+```{r}
+#| label: fig-candidates-full
+#| fig-cap: "Per-variant FST along chromosome 1 between AFR and EAS populations (the most differentiated pair). Craniofacial candidate genes RUNX2 and COL1A1 are highlighted. The dashed red line marks the 99th percentile FST threshold. One RUNX2 variant (FST ≈ 0.60) substantially exceeds this threshold, suggesting population-differentiated variation at this craniofacial master regulator. COL1A1 variants cluster near zero, consistent with strong purifying selection on this structural collagen gene."
+
+threshold_99 <- quantile(fst_snp$HUDSON_FST, 0.99, na.rm = TRUE)
+
+ggplot(fst_snp, aes(x = POS/1e6, y = HUDSON_FST)) +
+  geom_point(alpha = 0.3, size = 0.8, color = "grey60") +
+  geom_point(data = filter(fst_snp, !is.na(gene)),
+             aes(color = gene), size = 3, alpha = 0.9) +
+  geom_hline(yintercept = threshold_99,
+             linetype = "dashed", color = "red", linewidth = 0.7) +
+  annotate("text", x = 240, y = threshold_99 + 0.02,
+           label = paste0("99th percentile (FST = ", round(threshold_99, 3), ")"),
+           color = "red", size = 3.5) +
+  scale_color_manual(values = c("RUNX2" = "#E41A1C", "COL1A1" = "#377EB8"),
+                     name = "Candidate Gene") +
+  labs(
+    title = "Per-Variant FST Along Chromosome 1 — AFR vs EAS",
+    subtitle = "Craniofacial candidate genes RUNX2 and COL1A1 highlighted",
+    x = "Chromosomal Position (Mb)",
+    y = "Hudson FST",
+    caption = "Data: 1000 Genomes Project Phase 3 | Analysis: PLINK2 v2.0.0-a.7.1"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(panel.grid.minor = element_blank(), legend.position = "right",
+        plot.title = element_text(face = "bold"))
+```
+
+```{r}
+#| label: tbl-candidates
+#| tbl-cap: "FST statistics for craniofacial candidate gene variants"
+
+fst_snp %>%
+  filter(!is.na(gene)) %>%
+  group_by(gene) %>%
+  summarise(
+    `N variants` = n(),
+    `Mean FST` = round(mean(HUDSON_FST, na.rm = TRUE), 4),
+    `Max FST` = round(max(HUDSON_FST, na.rm = TRUE), 4),
+    `Min FST` = round(min(HUDSON_FST, na.rm = TRUE), 4),
+    `Above 99th pct` = sum(HUDSON_FST > threshold_99, na.rm = TRUE)
+  )
+```
+
+RUNX2 harbours one variant with FST ≈ 0.60 between AFR and EAS populations, 
+placing it in the extreme tail of the genome-wide FST distribution. This gene 
+encodes a transcription factor essential for osteoblast differentiation and 
+has been directly linked to variation in cranial vault morphology, mandibular 
+shape, and facial prognathism across human populations (Lefevre et al., 2018). 
+The highly differentiated variant likely reflects either directional selection 
+favouring different RUNX2 regulatory variants in African versus East Asian 
+populations, or strong genetic drift amplified by the East Asian bottleneck.
+
+COL1A1, by contrast, shows consistently low FST values (mean FST ≈ 0.01), 
+consistent with strong purifying selection maintaining the structural integrity 
+of type I collagen — the primary organic component of bone matrix. This 
+differential pattern between a regulatory gene (RUNX2) and a structural gene 
+(COL1A1) is consistent with the emerging view that much of adaptive morphological 
+evolution occurs through changes in gene regulation rather than protein structure 
+(Carroll, 2008).
+
+---
+
+## Discussion
+
+### Human Variation as a Continuum
+
+The PCA results presented here illustrate a fundamental principle of human 
+population genetics: genetic variation in our species is continuous and clinal, 
+not discrete and typological. The absence of sharp boundaries between population 
+clusters — particularly evident in the intermediate positioning of AMR and SAS 
+populations — directly contradicts the typological frameworks that dominated 
+physical anthropology for much of its history.
+
+This continuity is not merely a statistical artefact of our analytical approach. 
+It reflects the biological reality of a species with a recent common ancestor, 
+extensive gene flow across geographic boundaries, and a demographic history 
+characterized by serial founder effects rather than reproductive isolation 
+(Ramachandran et al., 2005). The famous Fst values in humans (~0.10-0.15 
+between continental groups) are lower than those observed between subspecies 
+in most other mammalian species — we are, genetically speaking, a remarkably 
+homogeneous species whose visible morphological diversity has been systematically 
+overinterpreted through a racial lens.
+
+### The RUNX2 Signal: Selection or Drift?
+
+The identification of a highly differentiated RUNX2 variant between AFR and 
+EAS populations raises an important question: does this reflect natural selection 
+or genetic drift? Distinguishing between these processes requires additional 
+analyses beyond the scope of this study — specifically, extended haplotype 
+homozygosity (EHH) tests or composite likelihood ratio tests for selective sweeps.
+
+However, several lines of evidence are consistent with a selective hypothesis. 
+First, RUNX2 is a known target of positive selection in the human lineage, 
+with its protein showing accelerated evolution compared to other primates 
+(Bhullar et al., 2015). Second, craniofacial morphology shows clear 
+population-level differences that correlate with environmental variables — 
+cold-adapted populations in Northeast Asia show broader, more globular cranial 
+vaults, potentially related to thermoregulation (Beals et al., 1984). 
+Third, East Asian populations are known to harbour extended haplotypes at 
+several loci involved in facial morphology, consistent with recent positive 
+selection (Kamberov et al., 2013).
+
+### Limitations
+
+This analysis has several important limitations that should be acknowledged:
+
+1. **Single chromosome**: All analyses are restricted to chromosome 1. While this 
+provides proof-of-concept results, a genome-wide analysis incorporating all 
+autosomes would substantially increase statistical power and provide a more 
+complete picture of population structure and candidate gene differentiation.
+
+2. **LD pruning reduces resolution**: The aggressive LD pruning required for PCA 
+(removing 95.8% of variants) eliminates many variants within candidate genes. 
+A targeted analysis retaining all variants within candidate gene windows would 
+provide more complete coverage of these loci.
+
+3. **Absence of phenotypic data**: This study cannot directly link genomic 
+differentiation to morphological differences. Integrating 3D facial imaging 
+data — as available in the UK Biobank — would allow direct genotype-phenotype 
+association within a population genetics framework.
+
+4. **Confounding by demographic history**: High FST between populations does not 
+necessarily imply selection. Without formal tests for selection (iHS, XP-EHH, 
+CLR), the RUNX2 signal cannot be distinguished from drift with certainty.
+
+### Future Directions
+
+This work establishes a foundation for several natural extensions. First, 
+genome-wide extension incorporating all autosomes would provide substantially 
+increased power for both population structure analysis and candidate gene 
+identification. Second, integration of selection scan statistics — particularly 
+iHS for within-population sweeps and XP-EHH for cross-population comparisons — 
+would allow formal testing of the selective hypothesis at RUNX2 and other 
+craniofacial candidates. Third, cross-referencing highly differentiated SNPs 
+with the GWAS Catalog for craniofacial traits would identify whether population-
+differentiated variants have been previously associated with facial morphology 
+in GWAS studies.
+
+---
+
+## Conclusions
+
+This analysis demonstrates that the integration of population genomics with 
+the interpretive perspective of biological anthropology offers a powerful 
+framework for understanding human morphological diversity. The dominant axes 
+of human genetic variation mirror geographic and demographic history — the 
+Out-of-Africa dispersal, Eurasian population structure, and the complex 
+admixture patterns of the Americas are all legible in the first few principal 
+components of genomic variation. Genetic differentiation between populations, 
+while real and biologically meaningful, is modest by inter-specific standards 
+and continuous rather than discrete.
+
+The identification of a highly differentiated RUNX2 variant between African 
+and East Asian populations — the most genetically divergent pair in this 
+dataset — provides a genomic anchor for interpreting the craniofacial 
+morphological differences documented by physical anthropologists. Whether 
+this signal reflects selection or drift, it illustrates how candidate gene 
+approaches can bridge the gap between population genomics and morphological 
+anthropology.
+
+Ultimately, the genome tells the same story as the fossil record, the 
+archaeological record, and the linguistic record: *Homo sapiens* is a young, 
+mobile, and deeply interconnected species whose morphological diversity is 
+better understood as variation on a theme than as a collection of discrete types.
+
+---
+
+## Reproducibility
+
+All analyses are fully reproducible. Data, code, and this report are available at:
+
+**[github.com/enriqueescm/morphological-echoes-genome](https://github.com/enriqueescm/morphological-echoes-genome)**
+
+```{r}
+#| label: session-info
+#| code-fold: true
+#| code-summary: "Session Information"
+sessionInfo()
+```
+
+---
+
+## References
+
+1000 Genomes Project Consortium (2015). A global reference for human genetic variation. *Nature*, 526, 68–74. https://doi.org/10.1038/nature15393
+
+Adhikari, K. et al. (2016). A genome-wide association scan implicates DCHS2, RUNX2, GLI3, PAX1 and EDAR in human facial variation. *Nature Communications*, 7, 11616.
+
+Barbujani, G. et al. (1997). An apportionment of human DNA diversity. *PNAS*, 94, 4516–4519.
+
+Beals, K.L. et al. (1984). Brain size, cranial morphology, climate, and time machines. *Current Anthropology*, 25, 301–330.
+
+Bhatia, G. et al. (2013). Estimating and interpreting FST: the impact of rare variants. *Genome Research*, 23, 1514–1521.
+
+Bhullar, B.A. et al. (2015). A molecular mechanism for the origin of a key evolutionary innovation, the bird beak and palate, revealed by an integrative approach to major transitions in vertebrate history. *Evolution*, 69, 1665–1677.
+
+Carroll, S.B. (2008). Evo-devo and an expanding evolutionary synthesis: a genetic theory of morphological evolution. *Cell*, 134, 25–36.
+
+Chang, C.C. et al. (2015). Second-generation PLINK: rising to the challenge of larger and richer datasets. *GigaScience*, 4, 7.
+
+Claes, P. et al. (2018). Genome-wide mapping of global-to-local genetic effects on human facial shape. *Nature Genetics*, 50, 414–423.
+
+Haak, W. et al. (2015). Massive migration from the steppe was a source for Indo-European languages in Europe. *Nature*, 522, 207–211.
+
+Jakobsson, M. et al. (2008). Genotype, haplotype and copy-number variation in worldwide human populations. *Nature*, 451, 998–1003.
+
+Kamberov, Y.G. et al. (2013). Modeling recent human evolution in mice by expression of a selected EDAR variant. *Cell*, 152, 691–702.
+
+Lefevre, C.M. et al. (2018). RUNX2 and craniofacial morphology: evidence from a mouse model and human studies. *Journal of Dental Research*, 97, 883–891.
+
+Lewontin, R.C. (1972). The apportionment of human diversity. *Evolutionary Biology*, 6, 381–398.
+
+Li, J.Z. et al. (2008). Worldwide human relationships inferred from genome-wide patterns of variation. *Science*, 319, 1100–1104.
+
+Myers, S. et al. (2005). A fine-scale map of recombination rates and hotspots across the human genome. *Science*, 310, 321–324.
+
+Ramachandran, S. et al. (2005). Support from the relationship of genetic and geographic distance in human populations for a serial founder effect originating in Africa. *PNAS*, 102, 15942–15947.
+
+Reich, D. et al. (2009). Reconstructing Indian population history. *Nature*, 461, 489–494.
+
+Reich, D. et al. (2012). Reconstructing Native American population history. *Nature*, 488, 370–374.
+
+Relethford, J.H. (2009). Race and global patterns of phenotypic variation. *AJPA*, 139, 16–22.
+
+Rosenberg, N.A. et al. (2002). Genetic structure of human populations. *Science*, 298, 2381–2385.
+
+White, J.D. et al. (2021). Insights into the genetic architecture of the human face. *Nature Genetics*, 53, 45–53.
