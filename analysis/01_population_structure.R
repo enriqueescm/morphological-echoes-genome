@@ -2,6 +2,7 @@ library(ggplot2)
 library(tidyverse)
 library(ggrepel)
 library(RColorBrewer)
+library(reshape2)
 
 setwd("~/morphological-echoes-genome")
 
@@ -118,3 +119,45 @@ p3 <- ggplot(pca_data, aes(x = PC1, y = PC2, color = super_pop, fill = super_pop
 
 p3
 ggsave("figures/03_PCA_labeled.png", p3, width = 10, height = 7, dpi = 300)
+
+# Plot 4 — FST heatmap
+fst_data <- read_table("data/processed/chr1_fst.fst.summary")
+
+pops <- unique(c(fst_data$`#POP1`, fst_data$POP2))
+fst_matrix <- matrix(0, nrow = length(pops), ncol = length(pops))
+rownames(fst_matrix) <- pops
+colnames(fst_matrix) <- pops
+
+for (i in 1:nrow(fst_data)) {
+  p1 <- fst_data$`#POP1`[i]
+  p2 <- fst_data$POP2[i]
+  val <- fst_data$HUDSON_FST[i]
+  fst_matrix[p1, p2] <- val
+  fst_matrix[p2, p1] <- val
+}
+
+fst_long <- melt(fst_matrix)
+colnames(fst_long) <- c("Pop1", "Pop2", "FST")
+
+p4 <- ggplot(fst_long, aes(x = Pop1, y = Pop2, fill = FST)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(FST, 3)), size = 3.5, fontface = "bold") +
+  scale_fill_gradient(low = "#FFFFD4", high = "#E41A1C",
+                      name = "FST",
+                      limits = c(0, 0.16)) +
+  labs(
+    title = "Genetic Differentiation Between Human Populations",
+    subtitle = "Hudson FST — Chr1 | 22,415 SNPs | 1000 Genomes Project Phase 3",
+    x = NULL, y = NULL,
+    caption = "Higher FST = greater genetic differentiation"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text = element_text(face = "bold", size = 11),
+    legend.position = "right",
+    panel.grid = element_blank()
+  )
+
+p4
+ggsave("figures/04_FST_heatmap.png", p4, width = 8, height = 7, dpi = 300)
